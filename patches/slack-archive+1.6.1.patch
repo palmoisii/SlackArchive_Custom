@@ -1,0 +1,134 @@
+diff --git a/node_modules/slack-archive/lib/cli.js b/node_modules/slack-archive/lib/cli.js
+index 80aedf6..3566bcc 100644
+--- a/node_modules/slack-archive/lib/cli.js
++++ b/node_modules/slack-archive/lib/cli.js
+@@ -111,7 +111,7 @@ async function getToken() {
+         {
+             name: "token",
+             type: "input",
+-            message: "Please enter your Slack token (xoxp-...). See README for more details.",
++            message: "This Program is only for November Festival Office. Please enter your Slack token (xoxp-...). See README for more details.",
+         },
+     ]);
+     config.token = result.token;
+diff --git a/node_modules/slack-archive/lib/create-html.js b/node_modules/slack-archive/lib/create-html.js
+index da9227b..72b0af8 100644
+--- a/node_modules/slack-archive/lib/create-html.js
++++ b/node_modules/slack-archive/lib/create-html.js
+@@ -104,21 +104,25 @@ const Message = (props) => {
+     const slackCallbacks = {
+         user: ({ id }) => `@${getName(id, users)}`,
+     };
+-    return (React.createElement("div", { className: "message-gutter", id: message.ts },
+-        React.createElement("div", { className: "", "data-stringify-ignore": "true" },
+-            React.createElement(Avatar, { userId: message.user })),
+-        React.createElement("div", { className: "" },
+-            React.createElement("span", { className: "sender" }, username),
+-            React.createElement("span", { className: "timestamp" },
+-                React.createElement("span", { className: "c-timestamp__label" }, formatTimestamp(message))),
+-            React.createElement("br", null),
+-            React.createElement("div", { className: "text", dangerouslySetInnerHTML: {
+-                    __html: slackMarkdown.toHTML(message.text, {
+-                        escapeHTML: false,
+-                        slackCallbacks,
+-                    }),
+-                } }),
+-            props.children)));
++    
++    const processedText = processSlackLinks(message);
++
++    return (
++        React.createElement("div", { className: "message-gutter", id: message.ts },
++            React.createElement("div", { className: "", "data-stringify-ignore": "true" },
++                React.createElement(Avatar, { userId: message.user })),
++            React.createElement("div", { className: "" },
++                React.createElement("span", { className: "sender" }, username),
++                React.createElement("span", { className: "timestamp" },
++                    React.createElement("span", { className: "c-timestamp__label" }, formatTimestamp(message))),
++                React.createElement("br", null),
++                React.createElement("div", { className: "text", dangerouslySetInnerHTML: {
++                        __html: slackMarkdown.toHTML(processedText, {
++                            escapeHTML: false,
++                            slackCallbacks,
++                        }),
++                    } }),
++                props.children)));
+ };
+ const MessagesPage = (props) => {
+     const { channel, index, chunksInfo } = props;
+@@ -396,3 +400,49 @@ export async function createHtmlForChannels(channels = []) {
+ if (esMain(import.meta)) {
+     createHtmlForChannels();
+ }
++
++function processSlackLinks(message) {
++    // message.text が undefined の場合は空文字列を返す
++    if (!message.text) {
++        return "";
++    }
++
++    if (!message.attachments) {
++        return message.text;
++    }
++
++    let processedText = message.text;
++    
++    for (const attachment of message.attachments) {
++        if (attachment.is_msg_unfurl) {
++            const quotedMessage = React.createElement("div", { className: "quoted-message" },
++                React.createElement("a", {
++                        className: "message-gutter block",
++                        href: `../index.html?c=${attachment.channel_id}-0&ts=${attachment.ts}`,
++                        target: "blank",
++                        id: attachment.ts 
++                    },
++                    React.createElement("div", { className: "", "data-stringify-ignore": "true" }),
++                    React.createElement("div", { className: "" },
++                        React.createElement("span", { className: "sender" }, attachment.author_name),
++                        React.createElement("span", { className: "timestamp" },
++                            React.createElement("span", { className: "c-timestamp__label" }, 
++                                formatTimestamp({ts: attachment.ts})
++                            )),
++                        React.createElement("br", null),
++                        React.createElement("div", { className: "text", dangerouslySetInnerHTML: {
++                                __html: slackMarkdown.toHTML(attachment.text || "", {
++                                    escapeHTML: false,
++                                }),
++                            } }),
++                        attachment.is_thread_root_unfurl && 
++                            React.createElement("small", { className: "timestamp" }, "返信スレッド")
++                    ))
++            );
++            
++            processedText = processedText + ReactDOMServer.renderToStaticMarkup(quotedMessage);
++        }
++    }
++    
++    return processedText;
++}
+\ No newline at end of file
+diff --git a/node_modules/slack-archive/lib/download-files.js b/node_modules/slack-archive/lib/download-files.js
+index 0d6d1a4..e8b2513 100644
+--- a/node_modules/slack-archive/lib/download-files.js
++++ b/node_modules/slack-archive/lib/download-files.js
+@@ -29,12 +29,17 @@ async function downloadFile(file, channelId, i, total, spinner) {
+     const fileUrl = is_external
+         ? thumb_1024 || thumb_720 || thumb_480 || thumb_pdf
+         : url_private;
+-    if (!fileUrl)
+-        return;
++    if (!fileUrl) return;
++    
+     spinner.text = `Downloading ${i}/${total}: ${fileUrl}`;
+-    const extension = path.extname(fileUrl);
++    
++    // URLからクエリパラメータを削除して拡張子を取得
++    const urlWithoutQuery = fileUrl.split('?')[0];
++    const extension = path.extname(urlWithoutQuery);
++    
+     const filePath = getChannelUploadFilePath(channelId, `${id}${extension}`);
+     await downloadURL(fileUrl, filePath);
++    
+     if (mimetype === "application/pdf" && thumb_pdf) {
+         spinner.text = `Downloading ${i}/${total}: ${thumb_pdf}`;
+         const thumbFile = filePath.replace(extension, ".png");
